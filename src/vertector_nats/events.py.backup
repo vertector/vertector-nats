@@ -1,0 +1,498 @@
+"""Event schemas for academic schedule management system.
+
+All events follow the CloudEvents specification where applicable and include:
+- Unique event ID for idempotency
+- Event type for routing
+- Timestamp for ordering
+- Source service for tracing
+- Correlation ID for distributed tracing
+
+Each academic entity supports CUD operations (Create, Update, Delete).
+Read operations are handled via direct database queries and don't generate events.
+"""
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Literal, Optional
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field
+
+
+class EventType(str, Enum):
+    """Enumeration of all event types in the system."""
+
+    # Course events (CUD)
+    COURSE_CREATED = "academic.course.created"
+    COURSE_UPDATED = "academic.course.updated"
+    COURSE_DELETED = "academic.course.deleted"
+
+    # Assignment events (CUD)
+    ASSIGNMENT_CREATED = "academic.assignment.created"
+    ASSIGNMENT_UPDATED = "academic.assignment.updated"
+    ASSIGNMENT_DELETED = "academic.assignment.deleted"
+
+    # Exam events (CUD)
+    EXAM_CREATED = "academic.exam.created"
+    EXAM_UPDATED = "academic.exam.updated"
+    EXAM_DELETED = "academic.exam.deleted"
+
+    # Quiz events (CUD)
+    QUIZ_CREATED = "academic.quiz.created"
+    QUIZ_UPDATED = "academic.quiz.updated"
+    QUIZ_DELETED = "academic.quiz.deleted"
+
+    # Lab session events (CUD)
+    LAB_SESSION_CREATED = "academic.lab.created"
+    LAB_SESSION_UPDATED = "academic.lab.updated"
+    LAB_SESSION_DELETED = "academic.lab.deleted"
+
+    # Study todo events (CUD)
+    STUDY_TODO_CREATED = "academic.study.created"
+    STUDY_TODO_UPDATED = "academic.study.updated"
+    STUDY_TODO_DELETED = "academic.study.deleted"
+
+    # Challenge area events (CUD)
+    CHALLENGE_CREATED = "academic.challenge.created"
+    CHALLENGE_UPDATED = "academic.challenge.updated"
+    CHALLENGE_DELETED = "academic.challenge.deleted"
+
+    # Class schedule events (CUD)
+    CLASS_SCHEDULE_CREATED = "academic.schedule.created"
+    CLASS_SCHEDULE_UPDATED = "academic.schedule.updated"
+    CLASS_SCHEDULE_DELETED = "academic.schedule.deleted"
+
+    # Note-taking service events
+    NOTE_CREATED = "notes.created"
+    NOTE_LINKED = "notes.linked"
+    NOTE_TAGGED = "notes.tagged"
+
+
+class EventMetadata(BaseModel):
+    """Metadata attached to all events for observability."""
+
+    source_service: str = Field(
+        description="Service that generated this event", examples=["schedule-service"]
+    )
+    correlation_id: Optional[str] = Field(
+        default=None,
+        description="Correlation ID for distributed tracing across services",
+    )
+    causation_id: Optional[str] = Field(
+        default=None,
+        description="ID of the event that caused this event",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="ID of the user who triggered this event",
+    )
+    trace_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="OpenTelemetry trace context for distributed tracing",
+    )
+
+
+class BaseEvent(BaseModel):
+    """Base event model for all events in the system.
+
+    All events inherit from this base class to ensure consistency
+    and enable generic event handling.
+    """
+
+    event_id: UUID = Field(
+        default_factory=uuid4,
+        description="Unique identifier for this event (for idempotency)",
+    )
+    event_type: str = Field(description="Type of event for routing")
+    event_version: str = Field(
+        default="1.0",
+        description="Event schema version for backward compatibility",
+    )
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When this event occurred (UTC)",
+    )
+    metadata: EventMetadata = Field(
+        description="Event metadata for observability and tracing"
+    )
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+            UUID: lambda v: str(v),
+        }
+
+
+# ============================================================================
+# COURSE EVENTS (CUD)
+# ============================================================================
+
+
+class CourseCreatedEvent(BaseEvent):
+    """Event emitted when a new course is created."""
+
+    event_type: Literal[EventType.COURSE_CREATED] = EventType.COURSE_CREATED
+
+    # Required fields
+    course_code: str = Field(description="Course code identifier")
+    course_name: str = Field(description="Course name")
+    semester: str = Field(description="Semester taken")
+    credits: int = Field(description="Credit hours", ge=0, le=20)
+
+    # Core field
+    instructor: str = Field(description="Instructor name")
+
+    # Optional enhancement fields
+    difficulty_level: Optional[int] = Field(default=None, ge=1, le=10)
+    current_grade: Optional[str] = Field(default=None)
+    is_challenging: Optional[bool] = Field(default=None)
+    prerequisites: list[str] = Field(default_factory=list)
+    corequisites: list[str] = Field(default_factory=list)
+
+
+class CourseUpdatedEvent(BaseEvent):
+    """Event emitted when a course is updated."""
+
+    event_type: Literal[EventType.COURSE_UPDATED] = EventType.COURSE_UPDATED
+
+    course_code: str = Field(description="Course code identifier")
+    changes: dict[str, Any] = Field(
+        description="Dictionary of field changes (field_name -> new_value)"
+    )
+    previous_values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Previous values for changed fields",
+    )
+
+
+class CourseDeletedEvent(BaseEvent):
+    """Event emitted when a course is deleted."""
+
+    event_type: Literal[EventType.COURSE_DELETED] = EventType.COURSE_DELETED
+
+    course_code: str = Field(description="Course code identifier")
+    soft_delete: bool = Field(
+        default=True,
+        description="Whether this was a soft delete (archived) or hard delete",
+    )
+
+
+# ============================================================================
+# ASSIGNMENT EVENTS (CUD)
+# ============================================================================
+
+
+class AssignmentCreatedEvent(BaseEvent):
+    """Event emitted when a new assignment is created."""
+
+    event_type: Literal[EventType.ASSIGNMENT_CREATED] = EventType.ASSIGNMENT_CREATED
+
+    # Required fields
+    assignment_id: str = Field(description="Unique assignment identifier")
+    course_code: str = Field(description="Associated course code")
+    title: str = Field(description="Assignment title")
+    due_date: datetime = Field(description="Due date and time")
+
+    # Core field
+    status: Literal["not started", "in progress", "completed"] = Field(
+        default="not started"
+    )
+
+    # Optional fields
+    description: Optional[str] = Field(default=None)
+    estimated_hours: Optional[int] = Field(default=None, ge=1, le=200)
+    total_points: Optional[int] = Field(default=None, ge=0)
+    weight_percentage: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class AssignmentUpdatedEvent(BaseEvent):
+    """Event emitted when an assignment is updated."""
+
+    event_type: Literal[EventType.ASSIGNMENT_UPDATED] = EventType.ASSIGNMENT_UPDATED
+
+    assignment_id: str = Field(description="Assignment identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssignmentDeletedEvent(BaseEvent):
+    """Event emitted when an assignment is deleted."""
+
+    event_type: Literal[EventType.ASSIGNMENT_DELETED] = EventType.ASSIGNMENT_DELETED
+
+    assignment_id: str = Field(description="Assignment identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)
+
+
+# ============================================================================
+# EXAM EVENTS (CUD)
+# ============================================================================
+
+
+class ExamCreatedEvent(BaseEvent):
+    """Event emitted when a new exam is created."""
+
+    event_type: Literal[EventType.EXAM_CREATED] = EventType.EXAM_CREATED
+
+    exam_id: str = Field(description="Unique exam identifier")
+    course_code: str = Field(description="Associated course code")
+    exam_name: str = Field(description="Exam name")
+    exam_type: Literal["quiz", "midterm", "final", "other"]
+    exam_date: datetime = Field(description="Exam date and time")
+
+    # Optional fields
+    duration_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    total_points: Optional[int] = Field(default=None, ge=0)
+    topics_covered: list[str] = Field(default_factory=list)
+    location: Optional[str] = Field(default=None)
+
+
+class ExamUpdatedEvent(BaseEvent):
+    """Event emitted when an exam is updated."""
+
+    event_type: Literal[EventType.EXAM_UPDATED] = EventType.EXAM_UPDATED
+
+    exam_id: str = Field(description="Exam identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExamDeletedEvent(BaseEvent):
+    """Event emitted when an exam is deleted."""
+
+    event_type: Literal[EventType.EXAM_DELETED] = EventType.EXAM_DELETED
+
+    exam_id: str = Field(description="Exam identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)
+
+
+# ============================================================================
+# QUIZ EVENTS (CUD)
+# ============================================================================
+
+
+class QuizCreatedEvent(BaseEvent):
+    """Event emitted when a new quiz is created."""
+
+    event_type: Literal[EventType.QUIZ_CREATED] = EventType.QUIZ_CREATED
+
+    quiz_id: str = Field(description="Unique quiz identifier")
+    course_code: str = Field(description="Associated course code")
+    quiz_name: str = Field(description="Quiz name")
+    quiz_date: datetime = Field(description="Quiz date and time")
+
+    # Optional fields
+    total_points: Optional[int] = Field(default=None, ge=0)
+    topics_covered: list[str] = Field(default_factory=list)
+
+
+class QuizUpdatedEvent(BaseEvent):
+    """Event emitted when a quiz is updated."""
+
+    event_type: Literal[EventType.QUIZ_UPDATED] = EventType.QUIZ_UPDATED
+
+    quiz_id: str = Field(description="Quiz identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class QuizDeletedEvent(BaseEvent):
+    """Event emitted when a quiz is deleted."""
+
+    event_type: Literal[EventType.QUIZ_DELETED] = EventType.QUIZ_DELETED
+
+    quiz_id: str = Field(description="Quiz identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)
+
+
+# ============================================================================
+# LAB SESSION EVENTS (CUD)
+# ============================================================================
+
+
+class LabSessionCreatedEvent(BaseEvent):
+    """Event emitted when a new lab session is created."""
+
+    event_type: Literal[EventType.LAB_SESSION_CREATED] = EventType.LAB_SESSION_CREATED
+
+    lab_id: str = Field(description="Unique lab identifier")
+    course_code: str = Field(description="Associated course code")
+    lab_name: str = Field(description="Lab name or title")
+    lab_date: datetime = Field(description="Lab date and time")
+
+    # Core field
+    duration: int = Field(description="Duration in minutes", ge=15, le=480)
+
+    # Optional fields
+    location: Optional[str] = Field(default=None)
+    objectives: list[str] = Field(default_factory=list)
+
+
+class LabSessionUpdatedEvent(BaseEvent):
+    """Event emitted when a lab session is updated."""
+
+    event_type: Literal[EventType.LAB_SESSION_UPDATED] = EventType.LAB_SESSION_UPDATED
+
+    lab_id: str = Field(description="Lab identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class LabSessionDeletedEvent(BaseEvent):
+    """Event emitted when a lab session is deleted."""
+
+    event_type: Literal[EventType.LAB_SESSION_DELETED] = EventType.LAB_SESSION_DELETED
+
+    lab_id: str = Field(description="Lab identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)
+
+
+# ============================================================================
+# STUDY TODO EVENTS (CUD)
+# ============================================================================
+
+
+class StudyTodoCreatedEvent(BaseEvent):
+    """Event emitted when a new study todo is created."""
+
+    event_type: Literal[EventType.STUDY_TODO_CREATED] = EventType.STUDY_TODO_CREATED
+
+    todo_id: str = Field(description="Unique todo identifier")
+    course_code: str = Field(description="Associated course code")
+    topic: str = Field(description="Topic to study")
+    task: str = Field(description="Specific study task")
+
+    # Core fields
+    priority: int = Field(description="Priority level (1-5)", ge=1, le=5)
+    estimated_time: int = Field(description="Estimated time in minutes", ge=5, le=480)
+    status: Literal["not started", "in progress", "completed"] = Field(
+        default="not started"
+    )
+
+    # Optional fields
+    materials_needed: list[str] = Field(default_factory=list)
+    timeline: Optional[str] = Field(default=None)
+    associated_exam: Optional[str] = Field(default=None)
+
+
+class StudyTodoUpdatedEvent(BaseEvent):
+    """Event emitted when a study todo is updated."""
+
+    event_type: Literal[EventType.STUDY_TODO_UPDATED] = EventType.STUDY_TODO_UPDATED
+
+    todo_id: str = Field(description="Todo identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyTodoDeletedEvent(BaseEvent):
+    """Event emitted when a study todo is deleted."""
+
+    event_type: Literal[EventType.STUDY_TODO_DELETED] = EventType.STUDY_TODO_DELETED
+
+    todo_id: str = Field(description="Todo identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)
+
+
+# ============================================================================
+# CHALLENGE AREA EVENTS (CUD)
+# ============================================================================
+
+
+class ChallengeAreaCreatedEvent(BaseEvent):
+    """Event emitted when a new challenge area is identified."""
+
+    event_type: Literal[EventType.CHALLENGE_CREATED] = EventType.CHALLENGE_CREATED
+
+    challenge_id: str = Field(description="Unique challenge identifier")
+    course_code: str = Field(description="Associated course code")
+    subject: str = Field(description="Subject area")
+    topic: str = Field(description="Specific challenging topic")
+
+    # Core fields
+    difficulty_level: int = Field(description="Difficulty level (1-10)", ge=1, le=10)
+    priority_level: Literal["low", "medium", "high"] = Field(default="medium")
+
+    # Optional fields
+    specific_concepts: list[str] = Field(default_factory=list)
+    root_causes: list[str] = Field(default_factory=list)
+    recommended_resources: list[str] = Field(default_factory=list)
+
+
+class ChallengeAreaUpdatedEvent(BaseEvent):
+    """Event emitted when a challenge area is updated."""
+
+    event_type: Literal[EventType.CHALLENGE_UPDATED] = EventType.CHALLENGE_UPDATED
+
+    challenge_id: str = Field(description="Challenge identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChallengeAreaDeletedEvent(BaseEvent):
+    """Event emitted when a challenge area is deleted."""
+
+    event_type: Literal[EventType.CHALLENGE_DELETED] = EventType.CHALLENGE_DELETED
+
+    challenge_id: str = Field(description="Challenge identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)
+
+
+# ============================================================================
+# CLASS SCHEDULE EVENTS (CUD)
+# ============================================================================
+
+
+class ClassScheduleCreatedEvent(BaseEvent):
+    """Event emitted when a new class schedule is created."""
+
+    event_type: Literal[EventType.CLASS_SCHEDULE_CREATED] = EventType.CLASS_SCHEDULE_CREATED
+
+    schedule_id: str = Field(description="Unique schedule identifier")
+    course_code: str = Field(description="Associated course code")
+    day_of_week: Literal[
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+    ]
+    start_time: str = Field(description="Start time (HH:MM format)")
+    end_time: str = Field(description="End time (HH:MM format)")
+    semester: str = Field(description="Semester")
+
+    # Core field
+    recurring: bool = Field(default=True)
+
+    # Optional fields
+    location: Optional[str] = Field(default=None)
+    notes: Optional[str] = Field(default=None)
+
+
+class ClassScheduleUpdatedEvent(BaseEvent):
+    """Event emitted when a class schedule is updated."""
+
+    event_type: Literal[EventType.CLASS_SCHEDULE_UPDATED] = EventType.CLASS_SCHEDULE_UPDATED
+
+    schedule_id: str = Field(description="Schedule identifier")
+    course_code: str = Field(description="Associated course code")
+    changes: dict[str, Any] = Field(description="Dictionary of field changes")
+    previous_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClassScheduleDeletedEvent(BaseEvent):
+    """Event emitted when a class schedule is deleted."""
+
+    event_type: Literal[EventType.CLASS_SCHEDULE_DELETED] = EventType.CLASS_SCHEDULE_DELETED
+
+    schedule_id: str = Field(description="Schedule identifier")
+    course_code: str = Field(description="Associated course code")
+    soft_delete: bool = Field(default=True)

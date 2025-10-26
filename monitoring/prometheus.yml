@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'nats-jetstream'
+    environment: 'development'
+
+scrape_configs:
+  # NATS Server metrics
+  - job_name: 'nats'
+    static_configs:
+      - targets: ['nats:8222']
+    metrics_path: '/varz'
+    params:
+      format: ['prometheus']
+
+  # NATS Surveyor metrics
+  - job_name: 'nats-surveyor'
+    static_configs:
+      - targets: ['nats-surveyor:7777']

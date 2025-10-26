@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # NATS Server with JetStream enabled
+  nats:
+    image: nats:2.12.0-alpine3.22
+    container_name: nats-jetstream
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Cluster routing
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Optional: NATS Surveyor for monitoring (Prometheus metrics)
+  nats-surveyor:
+    image: natsio/nats-surveyor:latest
+    container_name: nats-surveyor
+    command:
+      - "-s"
+      - "nats://nats:4222"
+      - "-http_port"
+      - "7777"
+    ports:
+      - "7777:7777"
+    networks:
+      - microservices
+    depends_on:
+      nats:
+        condition: service_healthy
+    profiles:
+      - monitoring
+
+  # Optional: Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - microservices
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - microservices
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+volumes:
+  nats-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  microservices:
+    driver: bridge

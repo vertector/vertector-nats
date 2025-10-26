@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  # NATS server with TLS/SSL enabled
+  nats-tls:
+    image: nats:2.10-alpine
+    container_name: nats-jetstream-tls
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Cluster connections
+    volumes:
+      # Mount TLS certificates
+      - ./tls:/etc/nats/tls:ro
+      # Mount NATS configuration
+      - ./config/nats-server-tls.conf:/etc/nats/nats-server.conf:ro
+      # JetStream storage
+      - nats-jetstream-data:/data/jetstream
+      # Logs
+      - nats-logs:/var/log/nats
+    command:
+      - "-c"
+      - "/etc/nats/nats-server.conf"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nats-network
+    restart: unless-stopped
+
+  # NATS monitoring (optional)
+  nats-surveyor:
+    image: natsio/nats-surveyor:latest
+    container_name: nats-surveyor
+    ports:
+      - "7777:7777"
+    environment:
+      - NATS_SURVEYOR_SERVERS=nats://nats-tls:4222
+      - NATS_SURVEYOR_TLS_CA=/etc/nats/tls/ca-cert.pem
+      - NATS_SURVEYOR_TLS_CERT=/etc/nats/tls/client-cert.pem
+      - NATS_SURVEYOR_TLS_KEY=/etc/nats/tls/client-key.pem
+    volumes:
+      - ./tls:/etc/nats/tls:ro
+    depends_on:
+      - nats-tls
+    networks:
+      - nats-network
+    restart: unless-stopped
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - nats-network
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - nats-network
+    restart: unless-stopped
+
+volumes:
+  nats-jetstream-data:
+    driver: local
+  nats-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  nats-network:
+    driver: bridge
