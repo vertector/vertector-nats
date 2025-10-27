@@ -222,6 +222,7 @@ class NATSConfig(BaseSettings):
                 "academic.study.*",
                 "academic.challenge.*",
                 "academic.schedule.*",
+                "academic.profile.*",  # Profile events
             ],
             retention="interest",  # Changed from workqueue to allow multiple consumers
             storage="file",
