@@ -26,6 +26,7 @@ class EventMetadata(BaseModel):
     correlation_id: Optional[str] = Field(default=None, description="ID linking related events")
     causation_id: Optional[str] = Field(default=None, description="ID of the event that caused this")
     user_id: Optional[str] = Field(default=None, description="User who triggered the event")
+    institution_id: Optional[str] = Field(default=None, description="Institution identifier for multi-tenant data isolation")
     trace_context: Dict[str, Any] = Field(default_factory=dict, description="OpenTelemetry trace context")
 
 
@@ -58,6 +59,7 @@ class ProfileCreatedEvent(BaseEvent):
     email: str
     first_name: str
     last_name: str
+    institution_id: str  # Institution identifier for multi-tenancy
     major: Optional[str] = None
     minor: Optional[str] = None
     year: Optional[int] = None  # 1, 2, 3, 4, 5+ for undergrad/grad
@@ -123,6 +125,7 @@ class CourseCreatedEvent(BaseEvent):
     description: str
     instructor_name: str
     instructor_email: str
+    institution_id: str  # Multi-tenant data isolation
     component_type: List[str] = []
     prerequisites: List[str] = []
     grading_options: List[str] = ["Letter"]
@@ -425,6 +428,7 @@ class ClassScheduleCreatedEvent(BaseEvent):
     event_type: Literal["academic.schedule.created"] = "academic.schedule.created"
     schedule_id: str
     course_id: str
+    institution_id: str  # Multi-tenant data isolation
     days_of_week: List[str]  # ["Monday", "Wednesday", "Friday"]
     start_time: str  # "11:30:00" (HH:MM:SS)
     end_time: str  # "13:00:00" (HH:MM:SS)
